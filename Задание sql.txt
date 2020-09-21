@@ -30,13 +30,42 @@ CREATE TABLE WORK_DAYS AS
 
 ------------3
 CREATE PROCEDURE CALCULATION_OF_WORKING DAYS
-FIO varchar(255),
-	DATE_BEGIN DATETIME,
-	DATE_END DATETIME
+	DATE_B DATETIME,
+	DATE_E DATETIME
 AS
 
+BEGIN
+	-- не успел сделать разбиение на буквы, прошу прощения много работы было, но думаю это то решенияе которое требовалось 
 
-Не понятно как эту часть реализовывать .. Вам нужна процедура или функция которая принимает одну строку или принимает две даты как описано 
+
+
+	insert into WORK_DAYS
+		select
+			t.FIO
+			, CASE when SR.SHEDULE = 'Д' then t.date + 1/3
+			       when SR.SHEDULE = 'Н' then t.date + 20/24
+		               when SR.SHEDULE = 'С' then t.date + 1/3
+		               else null end as WORK_START
+			, CASE when SR.SHEDULE = 'Д' then t.date + 20/24
+			       when SR.SHEDULE = 'Н' then t.date + 32/24
+		               when SR.SHEDULE = 'С' then t.date + 1/3 + 1
+		               else null end as WORK_END
+		from (
+			select FIO
+			, len(SHEDULE) cnt_d
+			, date
+			, row_number() over (partition by FIO, DATE_BEGIN) as rn
+			, count(date ) over (partition by FIO, DATE_BEGIN) as max_rn
+			from SHEDULERS s
+			join calendar c on c.date between s.DATE_BEGIN and s.DATE_END
+			where s.DATE_BEGIN>=DATE_B
+			and   s.DATE_END<= DATE_E
+		) t
+		join #SHEDULE_row SR on t.FIO = SR.FIO
+			and t.DATE_BEGIN = SR.DATE_BEGIN
+			and sr.rn = (case when mod(rn/cnt_d) = 0 then cnt_d else mod(rn/cnt_d) end)
+		where sr.SHEDULE <>'В';
+END;
 
 ------------4
 SELECT FIO , COUNT(DATE_BEGIN) AS COUNT_WORKDAY
