@@ -76,7 +76,7 @@ BEGIN
 		FROM master.dbo.spt_values
 		WHERE type='P' AND number BETWEEN 1 AND LEN(@SHEDULE);
 
-		FETCH NEXT FROM my_cur INTO @FIO, @SHEDULE, @SHEDULE
+		FETCH NEXT FROM CUR_SHEDULERS INTO @FIO, @SHEDULE, @SHEDULE
 	END
 
 	CLOSE CUR_SHEDULERS
@@ -99,14 +99,14 @@ BEGIN
 			select FIO
 			, len(SHEDULE) cnt_d
 			, date
-			, row_number() over (partition by FIO, DATE_BEGIN) as rn
+			, row_number() over (partition by FIO, DATE_BEGIN ORDER BY DATE_BEGIN) as rn
 			, count(date ) over (partition by FIO, DATE_BEGIN) as max_rn
 			from SHEDULERS s
 			join #Calendar c on c.date between s.DATE_BEGIN and s.DATE_END
 		) t
 		join #SHEDULE_row SR on t.FIO = SR.FIO
 			and t.date = SR.DATE_B
-			and sr.rn = (case when mod(rn/cnt_d) = 0 then cnt_d else mod(rn/cnt_d) end)
+			and sr.rn = (case when SR.RN%cnt_d = 0 then cnt_d else SR.RN%cnt_d end)
 		where sr.SHEDULE <>'В';
 END;
 
