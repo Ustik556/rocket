@@ -1,27 +1,29 @@
 ------------1
-CREATE TABLE SHEDULERS AS 
+CREATE TABLE SHEDULERS  
 (
 	FIO varchar(255),
 	SHEDULE varchar(255),
-	DATE_BEGIN DATE,
-	DATE_END DATE,
+	DATE_BEGIN datetime,
+	DATE_END datetime,
 
 	CONSTRAINT AK_SHEDULERS UNIQUE(FIO, DATE_BEGIN),
 	CHECK (DATE_BEGIN <= DATE_END) 
 );
 
+--delete from SHEDULERS
 BULK INSERT SHEDULERS
-FROM '\\shedulers.csv'
+FROM 'C:\Users\Oleg\Desktop\ТЗ SQL\shedulers.csv'
 WITH
     (
     FIRSTROW = 2,
-    FIELDTERMINATOR = ' ', 
+    FIELDTERMINATOR = '	', 
+	CODEPAGE = 'ACP', --Рус язык
     ROWTERMINATOR = '\n',   
     TABLOCK
     );
 
 ------------2
-CREATE TABLE WORK_DAYS AS 
+CREATE TABLE WORK_DAYS  
 (
 	FIO varchar(255),
 	DATE_BEGIN DATETIME,
@@ -29,27 +31,70 @@ CREATE TABLE WORK_DAYS AS
 );
 
 ------------3
-CREATE PROCEDURE CALCULATION_OF_WORKING DAYS
-	DATE_B DATETIME,
-	DATE_E DATETIME
+CREATE PROCEDURE CALCULATION_OF_WORKING 
+	@DATE_B DATETIME,
+	@DATE_E DATETIME
+
 AS
 
 BEGIN
-	-- не успел сделать разбиение на буквы, прошу прощения много работы было, но думаю это то решенияе которое требовалось 
 
+	SELECT  DATEADD(DAY, nbr - 1, @DATE_B) date
+	INTO #Calendar
+	FROM    ( SELECT    ROW_NUMBER() OVER ( ORDER BY c.object_id ) AS Nbr
+			  FROM      sys.columns c
+			) nbrs
+	WHERE   nbr - 1 <= DATEDIFF(DAY, @DATE_B, @DATE_E);
 
+	create table #SHEDULE_row
+	(
+	FIO varchar(255),
+	DATE_B DATETIME,
+	SHEDULE CHAR,
+	RN INTEGER
+	);
+
+	DECLARE @FIO varchar(255)
+	DECLARE @SHEDULE varchar(255)
+	DECLARE @DATE_BEGIN DATETIME
+
+	DECLARE CUR_SHEDULERS CURSOR FOR 
+		SELECT FIO
+		,SHEDULE
+		,DATE_BEGIN
+		FROM SHEDULERS
+   
+
+	OPEN CUR_SHEDULERS
+
+	FETCH NEXT FROM CUR_SHEDULERS INTO @FIO, @SHEDULE, @DATE_BEGIN
+
+	WHILE @@FETCH_STATUS = 0
+	BEGIN
+		INSERT INTO #SHEDULE_row
+		SELECT @FIO,@DATE_BEGIN,SUBSTRING(@SHEDULE,number,1),number
+		FROM master.dbo.spt_values
+		WHERE type='P' AND number BETWEEN 1 AND LEN(@SHEDULE);
+
+		FETCH NEXT FROM my_cur INTO @FIO, @SHEDULE, @SHEDULE
+	END
+
+	CLOSE CUR_SHEDULERS
+	DEALLOCATE CUR_SHEDULERS
+
+	
 
 	insert into WORK_DAYS
 		select
 			t.FIO
 			, CASE when SR.SHEDULE = 'Д' then t.date + 1/3
-			       when SR.SHEDULE = 'Н' then t.date + 20/24
-		               when SR.SHEDULE = 'С' then t.date + 1/3
-		               else null end as WORK_START
+					when SR.SHEDULE = 'Н' then t.date + 20/24
+						when SR.SHEDULE = 'С' then t.date + 1/3
+						else null end as WORK_START
 			, CASE when SR.SHEDULE = 'Д' then t.date + 20/24
-			       when SR.SHEDULE = 'Н' then t.date + 32/24
-		               when SR.SHEDULE = 'С' then t.date + 1/3 + 1
-		               else null end as WORK_END
+					when SR.SHEDULE = 'Н' then t.date + 32/24
+						when SR.SHEDULE = 'С' then t.date + 1/3 + 1
+						else null end as WORK_END
 		from (
 			select FIO
 			, len(SHEDULE) cnt_d
@@ -57,12 +102,10 @@ BEGIN
 			, row_number() over (partition by FIO, DATE_BEGIN) as rn
 			, count(date ) over (partition by FIO, DATE_BEGIN) as max_rn
 			from SHEDULERS s
-			join calendar c on c.date between s.DATE_BEGIN and s.DATE_END
-			where s.DATE_BEGIN>=DATE_B
-			and   s.DATE_END<= DATE_E
+			join #Calendar c on c.date between s.DATE_BEGIN and s.DATE_END
 		) t
 		join #SHEDULE_row SR on t.FIO = SR.FIO
-			and t.DATE_BEGIN = SR.DATE_BEGIN
+			and t.date = SR.DATE_B
 			and sr.rn = (case when mod(rn/cnt_d) = 0 then cnt_d else mod(rn/cnt_d) end)
 		where sr.SHEDULE <>'В';
 END;
@@ -75,7 +118,7 @@ GROUP BY FIO ;
 SELECT FIO , COUNT(DATE_BEGIN) AS COUNT_WORKDAY
 FROM WORK_DAYS 
 GROUP BY FIO 
-HAVING COUNT_WORKDAY > 10;
+HAVING COUNT(DATE_BEGIN) > 10;
 
 SELECT FIO 
 FROM WORK_DAYS 
