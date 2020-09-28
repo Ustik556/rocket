@@ -12,7 +12,7 @@ CREATE TABLE SHEDULERS
 
 --delete from SHEDULERS
 BULK INSERT SHEDULERS
-FROM 'C:\Users\Oleg\Desktop\ТЗ SQL\shedulers.csv'
+FROM '\\shedulers.csv'
 WITH
     (
     FIRSTROW = 2,
