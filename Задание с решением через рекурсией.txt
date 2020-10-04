@@ -1,0 +1,125 @@
+------------1
+CREATE TABLE SHEDULERS  
+(
+	FIO varchar(255),
+	SHEDULE varchar(255),
+	DATE_BEGIN datetime,
+	DATE_END datetime,
+
+	CONSTRAINT AK_SHEDULERS UNIQUE(FIO, DATE_BEGIN),
+	CHECK (DATE_BEGIN <= DATE_END) 
+);
+
+--delete from SHEDULERS
+BULK INSERT SHEDULERS
+FROM '\\shedulers.csv'
+WITH
+    (
+    FIRSTROW = 2,
+    FIELDTERMINATOR = '	', 
+	CODEPAGE = 'ACP', --Рус язык
+    ROWTERMINATOR = '\n',   
+    TABLOCK
+    );
+
+------------2
+CREATE TABLE WORK_DAYS  
+(
+	FIO varchar(255),
+	DATE_BEGIN DATETIME,
+	DATE_END DATETIME
+);
+
+------------3
+CREATE PROCEDURE CALCULATION_OF_WORKING 
+	@DATE_B DATETIME,
+	@DATE_E DATETIME
+
+AS
+
+BEGIN
+
+	SELECT  DATEADD(DAY, nbr - 1, @DATE_B) date
+	INTO #Calendar
+	FROM    ( SELECT    ROW_NUMBER() OVER ( ORDER BY c.object_id ) AS Nbr
+			  FROM      sys.columns c
+			) nbrs
+	WHERE   nbr - 1 <= DATEDIFF(DAY, @DATE_B, @DATE_E);
+
+
+	WITH SHED AS
+	(
+		select fio
+		, SHEDULE
+		, DATE_BEGIN
+		, DATE_END
+		, 1 as n
+		, (SELECT SUBSTRING(SHEDULE,number,1)
+		   FROM master.dbo.spt_values
+		   WHERE type='P' AND number = 1) as kk
+		from [dbo].[SHEDULERS]
+
+		UNION ALL
+
+		select s.fio
+		, s.SHEDULE
+		, s.DATE_BEGIN
+		, s.DATE_END
+		, n + 1 as n
+		, (SELECT SUBSTRING(s.SHEDULE,number,1)
+		   FROM master.dbo.spt_values
+		   WHERE type='P' AND number = n + 1) as kk
+		from [dbo].[SHEDULERS] s 
+		join SHED h on s.fio=h.FIO
+		and s.SHEDULE = h.SHEDULE
+		where n<len(s.SHEDULE)
+	)
+	select fio
+	, DATE_BEGIN as DATE_B
+	, kk as SHEDULE
+	, n as RN
+	into #SHEDULE_row
+	from SHED;
+
+
+	
+
+	insert into WORK_DAYS
+		select
+			t.FIO
+			, CASE when SR.SHEDULE = 'Д' then t.date + 1/3
+					when SR.SHEDULE = 'Н' then t.date + 20/24
+						when SR.SHEDULE = 'С' then t.date + 1/3
+						else null end as WORK_START
+			, CASE when SR.SHEDULE = 'Д' then t.date + 20/24
+					when SR.SHEDULE = 'Н' then t.date + 32/24
+						when SR.SHEDULE = 'С' then t.date + 1/3 + 1
+						else null end as WORK_END
+		from (
+			select FIO
+			, len(SHEDULE) cnt_d
+			, date
+			, row_number() over (partition by FIO, DATE_BEGIN ORDER BY DATE_BEGIN) as rn
+			, count(date ) over (partition by FIO, DATE_BEGIN) as max_rn
+			from SHEDULERS s
+			join #Calendar c on c.date between s.DATE_BEGIN and s.DATE_END
+		) t
+		join #SHEDULE_row SR on t.FIO = SR.FIO
+			and t.date = SR.DATE_B
+			and sr.rn = (case when SR.RN%cnt_d = 0 then cnt_d else SR.RN%cnt_d end)
+		where sr.SHEDULE <>'В';
+END;
+
+------------4
+SELECT FIO , COUNT(DATE_BEGIN) AS COUNT_WORKDAY
+FROM WORK_DAYS 
+GROUP BY FIO ;
+
+SELECT FIO , COUNT(DATE_BEGIN) AS COUNT_WORKDAY
+FROM WORK_DAYS 
+GROUP BY FIO 
+HAVING COUNT(DATE_BEGIN) > 10;
+
+SELECT FIO 
+FROM WORK_DAYS 
+WHERE FORMAT(DATE_BEGIN, 'DD.MM.YYYY') BETWEEN '14.01.2019' AND '16.01.2019'  ;
